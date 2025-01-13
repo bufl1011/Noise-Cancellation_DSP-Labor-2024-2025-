@@ -7,7 +7,7 @@
 #define N 512
 #define BUFFER_SIZE (2 * N)
 #define NUM_NOISE_FRAMES 200 // Anzahl der Rauschframes
-#define HOP_SIZE 128     // hop size (overlap)
+#define HOP_SIZE N/2     // hop size (overlap)
 
 
 float32_t fft_input[N];
@@ -46,6 +46,7 @@ float audiooutput[N];
 // Wiener
 float32_t H[N / 2];     
 float32_t beta = 100;        // Wiener-Filter-Gewinn
+float32_t hamming_normalization = 0.0f;
 
 
 
@@ -72,6 +73,14 @@ int main(void) {
         fft_freqs[i] = (double)i * SAMPLERATE / N;
     }
     generate_hamming_window(hamming_window, N);
+    //für Rekonstruktion
+   
+
+    for (int i = 0; i < N; i++) {
+        hamming_normalization += hamming_window[i];
+    }
+
+    hamming_normalization /= N;
 
     // Normale Verarbeitung
     while (1) {
@@ -171,18 +180,39 @@ void process_audio() {
             if (!filter_type){
                 //debug_printf("Wiener computed"); 
                 compute_wiener_filter();
+    
+                // Store previous FFT results if necessary for overlap addition
+                float previous_ifft_output[N] = {0};  // Ring buffer for overlap-add
+
+                // Apply Wiener filter on the FFT coefficients
                 for (int i = 0; i < N / 2; i++) {
-                    fft_output[2 * i] *= H[i];
-                    fft_output[2 * i + 1] *= H[i];
+                    fft_output[2 * i] *= H[i];     // Apply Wiener filter to real part
+                    fft_output[2 * i + 1] *= H[i]; // Apply Wiener filter to imaginary part
                 }
 
+                // Perform IFFT
                 arm_rfft_fast_f32(&fft_instance, fft_output, ifft_output, 1);
 
-                // Ausgabe
+                // Normalize the IFFT output by the hamming normalization factor
+                for (int i = 0; i < N; i++) {
+                    ifft_output[i] /= hamming_normalization;
+                }
+
+                // Handle overlap-add by adding the current and previous frames
+                // Make sure to only add the overlapping part
+                for (int i = 0; i < N / 2; i++) {
+                    ifft_output[i + N / 2] += previous_ifft_output[i + N / 2]; // Add the overlap
+                }
+
+                // Save the current IFFT output for the next iteration (next frame overlap)
+                for (int i = 0; i < N / 2; i++) {
+                    previous_ifft_output[i] = ifft_output[i + N / 2]/hamming_normalization; // Store the second half for the next overlap
+                }
+
+                // Output the result (write to the output buffer)
                 for (int i = 0; i < N; i++) {
                     *txbuf++ = (int16_t)(ifft_output[i] * 32768.0f);
                 }
-
             }
 
         }
