@@ -26,10 +26,6 @@ uint32_t audio_ring_buffer[BUFFER_SIZE] = {0};
 int wrt_buf_ind = 0;
 int rd_buf_ind = 0;
 
-float32_t noise_power =0;
-float32_t noisy_signal_power=0;
-float32_t signal_power=0;
-
 float32_t centroid = 10000.0f;
 float32_t spread = 0.0f;
 float32_t sum_centroid = 0.0f; 
@@ -133,8 +129,6 @@ void process_audio() {
         }
         rd_buf_ind = (rd_buf_ind + N) % BUFFER_SIZE;
 
-        noisy_power  = (mean*mean)/ N;
-
         mean /= N;
 
         
@@ -199,26 +193,26 @@ void process_audio() {
                     fft_output[2 * i + 1] *= H[i]; // Apply Wiener filter to imaginary part
                 }
 
-                // IFFT
+                // Perform IFFT
                 arm_rfft_fast_f32(&fft_instance, fft_output, ifft_output, 1);
 
-                // Normalize IFFT 
+                // Normalize the IFFT output by the hamming normalization factor
                 for (int i = 0; i < N; i++) {
                     ifft_output[i] /= hamming_normalization;
                 }
 
-                // overlap-add 
-               
+                // Handle overlap-add by adding the current and previous frames
+                // Make sure to only add the overlapping part
                 for (int i = 0; i < N / 2; i++) {
-                    ifft_output[i + N / 2] += previous_ifft_output[i + N / 2]/hamming_normalization; 
+                    ifft_output[i + N / 2] += previous_ifft_output[i + N / 2]/hamming_normalization; // Add the overlap
                 }
 
-                // Save IFFT output 
+                // Save the current IFFT output for the next iteration (next frame overlap)
                 for (int i = 0; i < N / 2; i++) {
-                    previous_ifft_output[i] = ifft_output[i + N / 2]/hamming_normalization; 
+                    previous_ifft_output[i] = ifft_output[i + N / 2]/hamming_normalization; // Store the second half for the next overlap
                 }
 
-                // Output 
+                // Output the result (write to the output buffer)
                 for (int i = 0; i < N; i++) {
                     *txbuf++ = (int16_t)(ifft_output[i] * 32768.0f);
                 }
