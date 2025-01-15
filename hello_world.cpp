@@ -20,10 +20,15 @@ float32_t P_clean[N / 2];       // Geschätzte saubere Leistung
 double fft_freqs[N / 2];        // Frequenzen
 arm_rfft_fast_instance_f32 fft_instance;
 float hamming_window[N];
+float previous_ifft_output[N] = {0};  // Ring buffer for overlap-add
 
 uint32_t audio_ring_buffer[BUFFER_SIZE] = {0};
 int wrt_buf_ind = 0;
 int rd_buf_ind = 0;
+
+float32_t noise_power =0;
+float32_t noisy_signal_power=0;
+float32_t signal_power=0;
 
 float32_t centroid = 10000.0f;
 float32_t spread = 0.0f;
@@ -47,6 +52,8 @@ float audiooutput[N];
 float32_t H[N / 2];     
 float32_t beta = 100;        // Wiener-Filter-Gewinn
 float32_t hamming_normalization = 0.0f;
+
+float32_t P_sig = 0; 
 
 
 
@@ -107,7 +114,7 @@ void process_audio() {
             //LMS_filter 
             float s_hat = a_hat * arm_cos_f32(omega *i) + b_hat * arm_sin_f32(omega*i);
             float error = filtered_sample - s_hat;
-
+            
             //LMS - aktualisieren 
             a_hat += STEP_SIZE * error * arm_cos_f32(omega * i);
             b_hat += STEP_SIZE * error * arm_sin_f32(omega * i);
@@ -125,8 +132,13 @@ void process_audio() {
             mean += fft_input[i];
         }
         rd_buf_ind = (rd_buf_ind + N) % BUFFER_SIZE;
+
+        noisy_power  = (mean*mean)/ N;
+
         mean /= N;
 
+        
+        //DC entfernen 
         for (int i = 0; i < N; i++) {
             fft_input[i] = (fft_input[i] - mean) * hamming_window[i];
         }
@@ -180,9 +192,6 @@ void process_audio() {
             if (!filter_type){
                 //debug_printf("Wiener computed"); 
                 compute_wiener_filter();
-    
-                // Store previous FFT results if necessary for overlap addition
-                float previous_ifft_output[N] = {0};  // Ring buffer for overlap-add
 
                 // Apply Wiener filter on the FFT coefficients
                 for (int i = 0; i < N / 2; i++) {
@@ -190,26 +199,26 @@ void process_audio() {
                     fft_output[2 * i + 1] *= H[i]; // Apply Wiener filter to imaginary part
                 }
 
-                // Perform IFFT
+                // IFFT
                 arm_rfft_fast_f32(&fft_instance, fft_output, ifft_output, 1);
 
-                // Normalize the IFFT output by the hamming normalization factor
+                // Normalize IFFT 
                 for (int i = 0; i < N; i++) {
                     ifft_output[i] /= hamming_normalization;
                 }
 
-                // Handle overlap-add by adding the current and previous frames
-                // Make sure to only add the overlapping part
+                // overlap-add 
+               
                 for (int i = 0; i < N / 2; i++) {
-                    ifft_output[i + N / 2] += previous_ifft_output[i + N / 2]; // Add the overlap
+                    ifft_output[i + N / 2] += previous_ifft_output[i + N / 2]/hamming_normalization; 
                 }
 
-                // Save the current IFFT output for the next iteration (next frame overlap)
+                // Save IFFT output 
                 for (int i = 0; i < N / 2; i++) {
-                    previous_ifft_output[i] = ifft_output[i + N / 2]/hamming_normalization; // Store the second half for the next overlap
+                    previous_ifft_output[i] = ifft_output[i + N / 2]/hamming_normalization; 
                 }
 
-                // Output the result (write to the output buffer)
+                // Output 
                 for (int i = 0; i < N; i++) {
                     *txbuf++ = (int16_t)(ifft_output[i] * 32768.0f);
                 }
@@ -267,4 +276,12 @@ void generate_hamming_window(float *window, int size) {
     for (int i = 0; i < size; i++) {
         window[i] = 0.54 - 0.46 * arm_cos_f32(2 * PI * i / (size - 1));
     }
+}
+
+float32_t compute_SNR(float32_t signal_power,float32_t noise_power){
+    float SNR = 0.0f;
+
+    SNR = signal_power/noise_power;
+    return SNR;
+
 }
