@@ -21,10 +21,6 @@ Der LMS-Filter und der Notch-Filter funktionieren sehr gut in Echtzeit. Wenn als
 gesprochen wird, wird der Sinus komplett herraus gefiltert. Man kann den Sinus während dessen auch hoch pitchen, wodurch er nicht mehr gefiltert wird.
 Nachdem der uC resettet wird, werden neue Filterkoeffizienten bestimmt und der hochgepitchte Sinus wird ebenfalls gefilert.
 
-Was noch nicht ganz funktioniert:
-
-Der Wiener-Filter funktioniert zwar (wenn ein weißes Rauschen eingespeißt wird, kann es aus einem Sprachsignal gefilert werden), aber das 
-rekonstruierte Sprachsignal clippt und klingt robotisch.
 
 
 
